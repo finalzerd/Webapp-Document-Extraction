@@ -1,0 +1,13 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Google Cloud credentials
+config/*.json
+**/service-account-key.json
+
+# OS-specific files
+.DS_Store
+Thumbs.db
