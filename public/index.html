@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF AI Processor</title>
+    <title>PDF AI Analyzer</title>
     <!-- Add SheetJS library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
@@ -20,10 +20,71 @@
         .progress-text { margin-top: 5px; font-size: 14px; color: #666; }
         .error-message { color: red; margin-top: 10px; padding: 10px; background: #fff3f3; border-radius: 4px; }
         .field-selection-container { display: none; margin-top: 20px; }
+        .mode-selection-container { display: block; margin-top: 20px; }
         #fileInput { display: none; }
         .upload-btn { background: #2196f3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
         .upload-btn:disabled { opacity: 0.7; cursor: not-allowed; }
-        /* Add styles for the data table */
+        
+        /* Mode selection styles */
+        .mode-selection {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .mode-options {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .mode-option {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .mode-option:hover {
+            border-color: #2196f3;
+            box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2);
+        }
+        .mode-option input {
+            margin-right: 10px;
+        }
+        .mode-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+        .mode-description {
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .mode-best-for {
+            font-size: 13px;
+            color: #2196f3;
+        }
+        .mode-note {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #666;
+        }
+        .primary-btn {
+            background-color: #2196f3;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .primary-btn:hover {
+            background-color: #0d8aee;
+        }
+        
+        /* Table data styles */
         .data-table {
             width: 100%;
             border-collapse: collapse;
@@ -47,6 +108,74 @@
         .date-value {
             color: #2196f3;
         }
+        
+        /* NEW: Extraction progress styles */
+        .extraction-progress-container {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            display: none;
+        }
+        .extraction-progress h4 {
+            margin: 0 0 15px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        .status-message {
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 14px;
+        }
+        .extraction-progress-bar {
+            height: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+            position: relative;
+        }
+        .extraction-progress-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.5s ease;
+            border-radius: 4px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            animation: progress-pulse 1.5s infinite;
+        }
+        .extraction-progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #666;
+            margin-top: 8px;
+        }
+        @keyframes progress-pulse {
+            0% { opacity: 0.8; }
+            50% { opacity: 1; }
+            100% { opacity: 0.8; }
+        }
+        
+        /* Loading spinner */
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #2196f3;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -56,7 +185,11 @@
         </header>
 
         <main>
-            <div class="upload-container" id="dropZone">
+            <!-- Mode selection comes first -->
+            <div id="modeSelection" class="mode-selection-container"></div>
+            
+            <!-- File upload area (initially hidden) -->
+            <div class="upload-container" id="dropZone" style="display: none;">
                 <input type="file" id="fileInput" accept=".pdf" multiple />
                 <button class="upload-btn" id="uploadButton">Select PDF files</button>
                 <div id="fileList" class="file-list"></div>
@@ -66,6 +199,20 @@
                         <div class="progress" id="progressBar"></div>
                     </div>
                     <div class="progress-text" id="progressText"></div>
+                </div>
+            </div>
+            
+            <!-- NEW: Extraction Progress Container -->
+            <div id="extractionProgressContainer" class="extraction-progress-container">
+                <div class="extraction-progress">
+                    <h4>Bank Statement Processing</h4>
+                    <div id="statusMessage" class="status-message">Analyzing document structure...</div>
+                    <div class="extraction-progress-bar">
+                        <div id="extractionProgressFill" class="extraction-progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="extraction-progress-text">
+                        <span id="progressDetails">Starting extraction...</span>
+                    </div>
                 </div>
             </div>
 

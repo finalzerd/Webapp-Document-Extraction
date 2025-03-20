@@ -349,6 +349,246 @@ Rules:
     }
 });
 
+// Extract table data endpoint
+app.post('/extract-table-data', async (req, res) => {
+    try {
+        const { base64Content } = req.body;
+        
+        if (!base64Content) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'No PDF content provided' 
+            });
+        }
+
+        // Step 1: Get page count only once
+        console.log("Getting document page count...");
+        const pageCount = await pdfHandler.getPageCount(base64Content);
+        console.log(`PDF has ${pageCount} pages total`);
+
+        // Step 2: Extract first page for header analysis
+        console.log("Analyzing first page to determine table structure...");
+        const firstPageBase64 = await pdfHandler.getFirstPageBase64(base64Content);
+        
+        // First page analysis request
+        const headerRequest = {
+            contents: [{
+                role: "user",
+                parts: [
+                    { text: `Extract ONLY the column headers from the main transaction table in this bank statement.
+Format your response as a simple array of strings like this: ["Column1", "Column2", "Column3"]
+If there are multiple tables, focus on the main transaction table that shows statement entries.
+DO NOT include any additional text, explanation, or code blocks.` },
+                    {
+                        inlineData: {
+                            mimeType: "application/pdf",
+                            data: firstPageBase64
+                        }
+                    }
+                ]
+            }]
+        };
+
+        let headers = [];
+        // Use retry pattern for header extraction
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const headerResponse = await generativeModel.generateContent(headerRequest);
+                const headerResult = headerResponse.response.candidates[0].content.parts[0].text;
+                
+                // Clean the response
+                let cleanedResponse = headerResult.trim();
+                if (cleanedResponse.startsWith('```') && cleanedResponse.endsWith('```')) {
+                    cleanedResponse = cleanedResponse.replace(/^```(\w+)?\s*/, '').replace(/\s*```\s*$/, '');
+                }
+                
+                // Find array pattern
+                const arrayMatch = cleanedResponse.match(/\[\s*".*"\s*\]/);
+                if (arrayMatch) {
+                    cleanedResponse = arrayMatch[0];
+                }
+                
+                try {
+                    headers = JSON.parse(cleanedResponse);
+                    console.log("Successfully extracted headers:", headers);
+                    break; // Success, exit retry loop
+                } catch (parseError) {
+                    console.log(`Header parsing error (attempt ${attempt}/3):`, parseError.message);
+                    if (attempt === 3) throw parseError;
+                    await delay(attempt * 3000); // Exponential backoff with longer delays
+                }
+            } catch (error) {
+                console.error(`Header extraction error (attempt ${attempt}/3):`, error.message);
+                if (attempt === 3) throw error;
+                await delay(attempt * 3000); // Exponential backoff with longer delays
+            }
+        }
+        
+        // If we still don't have headers, use default ones
+        if (!headers || !Array.isArray(headers) || headers.length === 0) {
+            headers = ["Date", "Description", "Amount", "Balance"];
+            console.log("Using default headers:", headers);
+        }
+
+        // Step 3: Process each page sequentially to extract table data
+        const extractedData = {
+            pages: []
+        };
+
+        // Create a cache to store page groups and avoid redundant fetching
+        const pageGroupCache = {};
+        
+        // Process pages one by one with retries
+        for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+
+            // Calculate page group
+            const groupIndex = Math.floor((pageNum - 1) / 10);
+
+            // Get or create page group data
+            if (!pageGroupCache[groupIndex]) {
+                console.log(`Fetching page group ${groupIndex}...`);
+                pageGroupCache[groupIndex] = await pdfHandler.getPageGroup(base64Content, groupIndex);
+            } else {
+                console.log(`Using cached page group ${groupIndex} for page ${pageNum}`);
+            }
+
+            let succeeded = false;
+            
+            // Define retry function for page processing
+            for (let attempt = 1; attempt <= 5 && !succeeded; attempt++) {
+                try {
+                    console.log(`Processing page ${pageNum} of ${pageCount} (attempt ${attempt}/5)...`);
+                    
+                    // Get page data
+                    const pageGroup = await pdfHandler.getPageGroup(base64Content, Math.floor((pageNum - 1) / 10));
+                    
+                    // Create page request
+                    const pageRequest = {
+                        contents: [{
+                            role: "user",
+                            parts: [
+                                { text: `Extract the transaction table data from page ${pageNum} of this bank statement.
+Format your response as a valid JavaScript array of arrays like this:
+[
+  ["Value1", "Value2", "Value3"],
+  ["Value1", "Value2", "Value3"]
+]
+Rules:
+- Include ALL transaction rows on the page
+- Make sure rows align with these columns: ${JSON.stringify(headers)}
+- Return ONLY the array of arrays with no explanations
+- If there's no table data on this page, return an empty array: []
+- DO NOT include column headers, only data rows
+- Replace any newlines in cell values with spaces` },
+                                {
+                                    inlineData: {
+                                        mimeType: "application/pdf",
+                                        data: pageGroup.base64
+                                    }
+                                }
+                            ]
+                        }]
+                    };
+                    
+                    const pageResponse = await generativeModel.generateContent(pageRequest);
+                    const pageResult = pageResponse.response.candidates[0].content.parts[0].text;
+                    
+                    // Clean the response
+                    let cleanedResponse = pageResult.trim();
+                    if (cleanedResponse.startsWith('```') && cleanedResponse.endsWith('```')) {
+                        cleanedResponse = cleanedResponse.replace(/^```(\w+)?\s*/, '').replace(/\s*```\s*$/, '');
+                    }
+                    
+                    // Extract array
+                    const arrayMatch = cleanedResponse.match(/\[\s*\[[\s\S]*\]\s*\]/);
+                    if (arrayMatch) {
+                        cleanedResponse = arrayMatch[0];
+                    }
+                    
+                    // Parse the rows data
+                    let rows = [];
+                    try {
+                        rows = JSON.parse(cleanedResponse);
+                        console.log(`Successfully parsed ${rows.length} rows for page ${pageNum}`);
+                        
+                        // Sanitize the data - ensure all cells are strings with no newlines
+                        rows = rows.map(row => {
+                            return row.map(cell => String(cell || '').replace(/[\r\n]+/g, ' '));
+                        });
+                        
+                        // Add to result
+                        extractedData.pages.push({
+                            pageNumber: pageNum,
+                            tableData: {
+                                headers: headers,
+                                rows: rows
+                            }
+                        });
+                        
+                        succeeded = true;
+                    } catch (parseError) {
+                        console.error(`Error parsing rows for page ${pageNum} (attempt ${attempt}/5):`, parseError.message);
+                        if (attempt === 5) {
+                            // After max retries, add empty data
+                            extractedData.pages.push({
+                                pageNumber: pageNum,
+                                tableData: {
+                                    headers: headers,
+                                    rows: []
+                                }
+                            });
+                        } else {
+                            // Wait longer between retries
+                            await delay(attempt * 3000);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error processing page ${pageNum} (attempt ${attempt}/5):`, error.message);
+                    
+                    if (attempt === 5) {
+                        // After max retries, add empty data
+                        extractedData.pages.push({
+                            pageNumber: pageNum,
+                            tableData: {
+                                headers: headers,
+                                rows: []
+                            }
+                        });
+                    } else {
+                        // Wait longer between retries
+                        await delay(attempt * 3000);
+                    }
+                }
+            }
+            
+            // Add a longer wait between pages (10 seconds) to avoid rate limits
+            if (pageNum < pageCount) {
+                console.log(`Waiting 10 seconds before processing next page...`);
+                await delay(10000);
+            }
+        }
+        
+        console.log(`Successfully processed ${extractedData.pages.length} pages`);
+        
+        return res.json({
+            success: true,
+            data: extractedData
+        });
+
+    } catch (error) {
+        console.error('Table data extraction error:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Helper function for delay
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

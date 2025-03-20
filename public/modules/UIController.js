@@ -22,6 +22,12 @@ export class UIController {
         this.progressBar = document.getElementById('progressBar');
         this.progressText = document.getElementById('progressText');
         this.fieldSelectionContainer = document.getElementById('fieldSelection');
+        this.modeSelectionContainer = document.getElementById('modeSelection');
+
+        // Initially hide the dropZone
+        if (this.dropZone) {
+            this.dropZone.style.display = 'none';
+        }
 
         // New elements for group processing
         this.createGroupProgressElements();
@@ -32,6 +38,7 @@ export class UIController {
         if (!this.fileList) throw new Error('File list element not found');
         if (!this.uploadButton) throw new Error('Upload button not found');
         if (!this.fieldSelectionContainer) throw new Error('Field selection container not found');
+        if (!this.modeSelectionContainer) throw new Error('Mode selection container not found');
     }
 
     createGroupProgressElements() {
@@ -120,7 +127,58 @@ export class UIController {
             .group-progress-fill.processing {
                 animation: progress-glow 1.5s infinite;
             }
+
+            .extraction-progress-container {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }
+            .extraction-progress h4 {
+                margin: 0 0 15px 0;
+                color: #333;
+                font-size: 16px;
+            }
+            .status-message {
+                margin-bottom: 10px;
+                color: #333;
+                font-size: 14px;
+            }
+            .extraction-progress-bar {
+                height: 8px;
+                background: #f0f0f0;
+                border-radius: 4px;
+                overflow: hidden;
+                margin: 10px 0;
+                position: relative;
+            }
+            .extraction-progress-fill {
+                height: 100%;
+                width: 0;
+                background: linear-gradient(90deg, #4CAF50, #8BC34A);
+                transition: width 0.5s ease;
+                border-radius: 4px;
+                position: absolute;
+                top: 0;
+                left: 0;
+                animation: progress-pulse 1.5s infinite;
+            }
+            .extraction-progress-text {
+                display: flex;
+                justify-content: space-between;
+                font-size: 14px;
+                color: #666;
+                margin-top: 8px;
+            }
+            @keyframes progress-pulse {
+                0% { opacity: 0.8; }
+                50% { opacity: 1; }
+                100% { opacity: 0.8; }
+            }
         `;
+
         
         document.head.appendChild(style);
         
@@ -131,6 +189,63 @@ export class UIController {
         );
     }
 
+    // Update the showModeSelection method
+    showModeSelection() {
+        if (!this.modeSelectionContainer) return;
+        
+        this.modeSelectionContainer.innerHTML = `
+            <div class="mode-selection">
+                <h3>Select Document Type</h3>
+                <div class="mode-options">
+                    <div class="mode-option">
+                        <input type="radio" id="fieldExtractionMode" name="extractionMode" value="field" checked>
+                        <label for="fieldExtractionMode">
+                            <div class="mode-title">Invoice or Receipt</div>
+                            <div class="mode-description">Extract specific fields like invoice numbers, dates, amounts, etc.</div>
+                            <div class="mode-best-for">Best for: Invoices, Receipts, Forms</div>
+                            <div class="mode-note"><strong>Note:</strong> You'll need to select which fields to extract.</div>
+                        </label>
+                    </div>
+                    <div class="mode-option">
+                        <input type="radio" id="tableExtractionMode" name="extractionMode" value="table">
+                        <label for="tableExtractionMode">
+                            <div class="mode-title">Bank Statement</div>
+                            <div class="mode-description">Extract complete transaction tables automatically</div>
+                            <div class="mode-best-for">Best for: Bank Statements, Transaction Lists, Reports</div>
+                            <div class="mode-note"><strong>Note:</strong> All transaction data will be extracted automatically.</div>
+                        </label>
+                    </div>
+                </div>
+                <button id="continueWithMode" class="primary-btn">Continue</button>
+            </div>
+        `;
+    
+        const continueBtn = document.getElementById('continueWithMode');
+        if (continueBtn) {
+            continueBtn.addEventListener('click', () => {
+                const selectedMode = document.querySelector('input[name="extractionMode"]:checked').value;
+                
+                // Hide mode selection after choice
+                this.modeSelectionContainer.style.display = 'none';
+                
+                const event = new CustomEvent('modeSelected', { 
+                    detail: selectedMode 
+                });
+                document.dispatchEvent(event);
+            });
+        }
+    
+        this.modeSelectionContainer.style.display = 'block';
+    }
+
+    // Add a method to clear the extraction progress when done
+    clearExtractionProgress() {
+        const extractionProgressContainer = document.getElementById('extractionProgressContainer');
+        if (extractionProgressContainer) {
+            extractionProgressContainer.style.display = 'none';
+        }
+    }
+
     bindEvents() {
         if (this.uploadButton) {
             this.uploadButton.addEventListener('click', () => {
@@ -138,6 +253,30 @@ export class UIController {
             });
         }
     }
+
+    // Add new method to show extraction progress
+    showExtractionProgress(show = true, status = '', percentage = 0) {
+        const progressContainer = document.getElementById('extractionProgressContainer');
+        if (!progressContainer) return;
+        
+        if (show) {
+            // Update status and progress 
+            const statusMessage = document.getElementById('statusMessage');
+            const progressFill = document.getElementById('extractionProgressFill');
+            const progressDetails = document.getElementById('progressDetails');
+            
+            if (statusMessage) statusMessage.textContent = status || 'Processing...';
+            if (progressFill) progressFill.style.width = `${percentage}%`;
+            if (progressDetails) {
+                progressDetails.textContent = `Progress: ${percentage}% complete`;
+            }
+            
+            progressContainer.style.display = 'block';
+        } else {
+            progressContainer.style.display = 'none';
+        }
+    }
+
 
     updateFileList(files) {
         if (!this.fileList) return;
@@ -362,6 +501,7 @@ export class UIController {
         }
     }
 
+    // Update resetState to hide extraction progress
     resetState() {
         if (this.fileInput) this.fileInput.value = '';
         if (this.fileList) this.fileList.innerHTML = '';
@@ -374,6 +514,18 @@ export class UIController {
         if (this.groupProgressContainer) {
             this.groupProgressContainer.style.display = 'none';
         }
+        
+        // Hide extraction progress
+        this.showExtractionProgress(false);
+        
+        // Show mode selection and hide drop zone
+        if (this.modeSelectionContainer) {
+            this.modeSelectionContainer.style.display = 'block';
+        }
+        if (this.dropZone) {
+            this.dropZone.style.display = 'none';
+        }
+        
         this.selectedFields = [];
         this.currentGroupIndex = 0;
         this.totalGroups = 0;

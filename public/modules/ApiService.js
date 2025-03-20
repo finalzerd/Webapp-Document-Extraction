@@ -5,7 +5,8 @@ export class ApiService {
             suggestFields: '/suggest-fields',
             extractData: '/extract-data',
             getPageCount: '/get-page-count',
-            extractDataGroup: '/extract-data-group'
+            extractDataGroup: '/extract-data-group',
+            extractTableData: '/extract-table-data'  // Add this new endpoint
         };
         
         this.MAX_RETRIES = 5;
@@ -179,6 +180,113 @@ export class ApiService {
 
             return data.data;
         }, `group ${groupInfo.groupIndex + 1}`);
+    }
+
+    async extractTableData(base64Content) {
+        let stopPolling = null;
+        
+        try {
+            // Get page count first for better progress tracking
+            const pageCount = await this.getPDFPageCount(base64Content);
+            
+            // Start progress polling
+            stopPolling = this.startProgressPolling(pageCount);
+            
+            return await this.retryOperation(async () => {
+                console.log('Extracting table data...');
+                
+                const response = await fetch(this.endpoints.extractTableData, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        base64Content: base64Content
+                    })
+                });
+    
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status}`);
+                }
+    
+                const data = await response.json();
+                
+                if (!data.success) {
+                    throw new Error(data.error || 'Unknown error occurred');
+                }
+    
+                return data.data;
+            }, 'table extraction');
+        } finally {
+            // Make sure to stop polling when done
+            if (stopPolling) {
+                stopPolling();
+            }
+            
+            // Final progress update
+            this.updateExtractionProgress({
+                status: 'Completed extracting all transaction data!',
+                currentPage: 0,
+                totalPages: pageCount,
+                completedPages: pageCount
+            });
+        }
+    }
+
+    // Add this helper method to ApiService
+    updateExtractionProgress(progressData) {
+        // Emit progress event for the UI to display
+        document.dispatchEvent(new CustomEvent('extractionProgress', {
+            detail: progressData
+        }));
+    }
+
+    // Start a progress polling simulation
+    startProgressPolling(totalPages) {
+        // Create initial state
+        let progressState = {
+            status: 'Analyzing document structure...',
+            currentPage: 0,
+            totalPages: totalPages,
+            completedPages: 0,
+            headersDone: false
+        };
+        
+        // Update immediately
+        this.updateExtractionProgress(progressState);
+        
+        // Set up polling interval - every 2 seconds
+        const intervalId = setInterval(() => {
+            // Simulate progress
+            if (!progressState.headersDone) {
+                // Headers extraction phase
+                progressState.headersDone = true;
+                progressState.status = 'Extracted table headers, processing pages...';
+            } else if (progressState.completedPages < progressState.totalPages) {
+                // Page processing phase - simulate progress by incrementing completed pages
+                progressState.completedPages = Math.min(
+                    progressState.completedPages + 1,
+                    progressState.totalPages - 1  // Keep one page for the final update
+                );
+                progressState.currentPage = progressState.completedPages;
+                progressState.status = `Processing page ${progressState.currentPage} of ${progressState.totalPages}...`;
+            }
+            
+            // Update UI
+            this.updateExtractionProgress(progressState);
+            
+        }, 2000);
+        
+        // Store the interval ID so we can clear it when done
+        this.progressPollingId = intervalId;
+        
+        // Return a function to stop polling
+        return () => {
+            if (this.progressPollingId) {
+                clearInterval(this.progressPollingId);
+                this.progressPollingId = null;
+            }
+        };
     }
 
     async* processGroups(base64Content, selectedFields, totalPages) {
