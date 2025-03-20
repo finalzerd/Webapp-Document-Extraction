@@ -2,53 +2,95 @@ import { DataTable } from '/modules/DataTable.js';
 
 export class UIController {
     constructor() {
-        this.isProcessing = false;
-        this.selectedFields = [];
-        this.currentGroupIndex = 0;
-        this.totalGroups = 0;
-        this.accumulatedData = { pages: [] };
-        this.initializeElements();
-        this.dataTable = new DataTable('dataTableContainer');
+        this.state = {
+            isProcessing: false,
+            selectedFields: [],
+            currentGroupIndex: 0,
+            totalGroups: 0,
+            accumulatedData: { pages: [] },
+            currentPage: 0,
+            totalPages: 0
+        };
+        
+        // Initialize elements first
+        this.elements = this.initializeElements();
+        
+        // Initialize data table
+        try {
+            this.dataTable = new DataTable('dataTableContainer');
+        } catch (error) {
+            console.warn('DataTable initialization failed:', error.message);
+            this.dataTable = null;
+        }
+        
         this.bindEvents();
     }
 
+    /**
+     * Initialize all UI elements
+     * @returns {Object} Object containing elements
+     */
     initializeElements() {
         // Core elements
-        this.dropZone = document.getElementById('dropZone');
-        this.fileInput = document.getElementById('fileInput');
-        this.fileList = document.getElementById('fileList');
-        this.uploadButton = document.getElementById('uploadButton');
-        this.progressContainer = document.getElementById('progressContainer');
-        this.progressBar = document.getElementById('progressBar');
-        this.progressText = document.getElementById('progressText');
-        this.fieldSelectionContainer = document.getElementById('fieldSelection');
-        this.modeSelectionContainer = document.getElementById('modeSelection');
-
+        const elements = {
+            dropZone: document.getElementById('dropZone'),
+            fileInput: document.getElementById('fileInput'),
+            fileList: document.getElementById('fileList'),
+            uploadButton: document.getElementById('uploadButton'),
+            progressContainer: document.getElementById('progressContainer'),
+            progressBar: document.getElementById('progressBar'),
+            progressText: document.getElementById('progressText'),
+            fieldSelectionContainer: document.getElementById('fieldSelection'),
+            modeSelectionContainer: document.getElementById('modeSelection'),
+            extractionProgressContainer: document.getElementById('extractionProgressContainer'),
+            groupProgress: this.createGroupProgressElements(),
+            simpleProgress: null // Will be initialized when needed
+        };
+        
+        // Validate critical elements (excluding optional ones)
+        this.validateRequiredElements(elements);
+        
         // Initially hide the dropZone
-        if (this.dropZone) {
-            this.dropZone.style.display = 'none';
+        if (elements.dropZone) {
+            elements.dropZone.style.display = 'none';
         }
-
-        // New elements for group processing
-        this.createGroupProgressElements();
-
-        // Verify critical elements
-        if (!this.dropZone) throw new Error('Drop zone element not found');
-        if (!this.fileInput) throw new Error('File input element not found');
-        if (!this.fileList) throw new Error('File list element not found');
-        if (!this.uploadButton) throw new Error('Upload button not found');
-        if (!this.fieldSelectionContainer) throw new Error('Field selection container not found');
-        if (!this.modeSelectionContainer) throw new Error('Mode selection container not found');
+        
+        return elements;
+    }
+    
+    /**
+     * Validate that required elements exist
+     */
+    validateRequiredElements(elements) {
+        const requiredElements = [
+            'dropZone', 'fileInput', 'fileList', 'uploadButton',
+            'fieldSelectionContainer', 'modeSelectionContainer'
+        ];
+        
+        const missingElements = [];
+        for (const key of requiredElements) {
+            if (!elements[key]) {
+                missingElements.push(key);
+            }
+        }
+        
+        if (missingElements.length > 0) {
+            console.warn(`Missing required UI elements: ${missingElements.join(', ')}`);
+        }
     }
 
+    /**
+     * Create group progress elements
+     * @returns {Object} DOM elements for group progress
+     */
     createGroupProgressElements() {
-        // Create group progress container
-        this.groupProgressContainer = document.createElement('div');
-        this.groupProgressContainer.className = 'group-progress-container';
-        this.groupProgressContainer.style.display = 'none';
+        // Create container
+        const container = document.createElement('div');
+        container.className = 'group-progress-container';
+        container.style.display = 'none';
         
-        // Create progress elements
-        const progressHTML = `
+        // Create HTML structure
+        container.innerHTML = `
             <div class="group-progress">
                 <h4>Processing PDF in Groups</h4>
                 <div class="group-progress-bar">
@@ -62,10 +104,176 @@ export class UIController {
             </div>
         `;
         
-        this.groupProgressContainer.innerHTML = progressHTML;
+        // Add styles
+        this.addGroupProgressStyles();
+        
+        // Don't try to insert it yet - we'll do that when we need to show it
+        
+        return {
+            container,
+            fill: container.querySelector('.group-progress-fill'),
+            currentGroup: container.querySelector('.current-group'),
+            pagesInfo: container.querySelector('.pages-info'),
+            status: container.querySelector('.group-status')
+        };
+    }
+
+    /**
+     * Method to replace the progress bar with a simple text status indicator
+     */
+    createSimpleProgressDisplay() {
+        // Create container
+        const container = document.createElement('div');
+        container.id = 'simple-progress-container';
+        container.className = 'simple-progress-container';
+        container.style.display = 'none';
+        
+        // Create HTML structure
+        container.innerHTML = `
+            <div class="simple-progress">
+                <h4>Processing Document</h4>
+                <div class="progress-status">
+                    <span id="progress-text">Processing...</span>
+                </div>
+            </div>
+        `;
         
         // Add styles
         const style = document.createElement('style');
+        style.id = 'simple-progress-styles';
+        style.textContent = `
+            .simple-progress-container {
+                margin-top: 20px;
+                padding: 15px;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background: white;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                text-align: center;
+            }
+            .simple-progress h4 {
+                margin: 0 0 15px 0;
+                color: #333;
+                font-size: 16px;
+            }
+            .progress-status {
+                font-size: 16px;
+                color: #2196f3;
+                margin: 10px 0;
+                font-weight: 500;
+            }
+            @keyframes pulse {
+                0% { opacity: 0.8; }
+                50% { opacity: 1; }
+                100% { opacity: 0.8; }
+            }
+            #progress-text {
+                display: inline-block;
+                animation: pulse 1.5s infinite;
+            }
+        `;
+        
+        if (!document.getElementById('simple-progress-styles')) {
+            document.head.appendChild(style);
+        }
+        
+        return container;
+    }
+
+    /**
+     * Initialize simple progress display
+     * @param {number} totalPages - Total number of pages
+     */
+    initializeSimpleProgress(totalPages) {
+        // Reset state
+        this.state.currentPage = 1;
+        this.state.totalPages = totalPages;
+        
+        // Create container if it doesn't exist
+        if (!this.elements.simpleProgress) {
+            const container = this.createSimpleProgressDisplay();
+            
+            // Try to add it to the document
+            const fieldContainer = this.elements.fieldSelectionContainer;
+            if (fieldContainer && fieldContainer.parentNode) {
+                fieldContainer.parentNode.insertBefore(container, fieldContainer.nextSibling);
+                this.elements.simpleProgress = {
+                    container,
+                    text: container.querySelector('#progress-text')
+                };
+            } else {
+                // Fallback to data table container
+                const dataTableContainer = document.getElementById('dataTableContainer');
+                if (dataTableContainer) {
+                    dataTableContainer.parentNode.insertBefore(container, dataTableContainer);
+                    this.elements.simpleProgress = {
+                        container,
+                        text: container.querySelector('#progress-text')
+                    };
+                }
+            }
+        }
+        
+        // Check if we have the elements
+        if (this.elements.simpleProgress?.container) {
+            this.elements.simpleProgress.container.style.display = 'block';
+            this.updateSimpleProgress(1);
+        }
+    }
+
+    /**
+     * Update simple progress display
+     * @param {number} currentPage - Current page being processed
+     */
+    updateSimpleProgress(currentPage) {
+        if (!this.elements.simpleProgress?.text) return;
+        
+        this.state.currentPage = currentPage;
+        this.elements.simpleProgress.text.textContent = 
+            `Processing page ${currentPage} of ${this.state.totalPages}`;
+    }
+
+    /**
+     * Complete simple progress display
+     * @param {boolean} success - Whether processing was successful
+     * @param {string} message - Optional completion message
+     */
+    completeSimpleProgress(success = true, message = null) {
+        if (!this.elements.simpleProgress?.text) return;
+        
+        if (success) {
+            this.elements.simpleProgress.text.textContent = 
+                message || `Completed processing all ${this.state.totalPages} pages!`;
+        } else {
+            this.elements.simpleProgress.text.textContent = 
+                message || 'Processing incomplete due to errors';
+        }
+        
+        // Remove animation
+        this.elements.simpleProgress.text.style.animation = 'none';
+        
+        // Add success/error styling
+        this.elements.simpleProgress.text.style.color = success ? '#4caf50' : '#f44336';
+        
+        // Hide after delay
+        setTimeout(() => {
+            if (this.elements.simpleProgress?.container) {
+                this.elements.simpleProgress.container.style.display = 'none';
+            }
+        }, 3000);
+    }
+
+    /**
+     * Add styles for group progress
+     */
+    addGroupProgressStyles() {
+        // Check if styles are already added
+        if (document.getElementById('group-progress-styles')) {
+            return;
+        }
+        
+        const style = document.createElement('style');
+        style.id = 'group-progress-styles';
         style.textContent = `
             .group-progress-container {
                 margin-top: 20px;
@@ -127,73 +335,28 @@ export class UIController {
             .group-progress-fill.processing {
                 animation: progress-glow 1.5s infinite;
             }
-
-            .extraction-progress-container {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            background: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            }
-            .extraction-progress h4 {
-                margin: 0 0 15px 0;
-                color: #333;
-                font-size: 16px;
-            }
-            .status-message {
-                margin-bottom: 10px;
-                color: #333;
-                font-size: 14px;
-            }
-            .extraction-progress-bar {
-                height: 8px;
-                background: #f0f0f0;
-                border-radius: 4px;
-                overflow: hidden;
-                margin: 10px 0;
-                position: relative;
-            }
-            .extraction-progress-fill {
-                height: 100%;
-                width: 0;
-                background: linear-gradient(90deg, #4CAF50, #8BC34A);
-                transition: width 0.5s ease;
-                border-radius: 4px;
-                position: absolute;
-                top: 0;
-                left: 0;
-                animation: progress-pulse 1.5s infinite;
-            }
-            .extraction-progress-text {
-                display: flex;
-                justify-content: space-between;
-                font-size: 14px;
-                color: #666;
-                margin-top: 8px;
-            }
-            @keyframes progress-pulse {
-                0% { opacity: 0.8; }
-                50% { opacity: 1; }
-                100% { opacity: 0.8; }
-            }
         `;
-
-        
         document.head.appendChild(style);
-        
-        // Insert after field selection container
-        this.fieldSelectionContainer.parentNode.insertBefore(
-            this.groupProgressContainer,
-            this.fieldSelectionContainer.nextSibling
-        );
     }
 
-    // Update the showModeSelection method
+    bindEvents() {
+        if (this.elements.uploadButton) {
+            this.elements.uploadButton.addEventListener('click', () => {
+                if (this.elements.fileInput) {
+                    this.elements.fileInput.click();
+                }
+            });
+        }
+    }
+
+    /**
+     * Show mode selection dialog
+     */
     showModeSelection() {
-        if (!this.modeSelectionContainer) return;
+        const container = this.elements.modeSelectionContainer;
+        if (!container) return;
         
-        this.modeSelectionContainer.innerHTML = `
+        container.innerHTML = `
             <div class="mode-selection">
                 <h3>Select Document Type</h3>
                 <div class="mode-options">
@@ -223,44 +386,26 @@ export class UIController {
         const continueBtn = document.getElementById('continueWithMode');
         if (continueBtn) {
             continueBtn.addEventListener('click', () => {
-                const selectedMode = document.querySelector('input[name="extractionMode"]:checked').value;
+                const selectedMode = document.querySelector('input[name="extractionMode"]:checked')?.value || 'field';
+                container.style.display = 'none';
                 
-                // Hide mode selection after choice
-                this.modeSelectionContainer.style.display = 'none';
-                
-                const event = new CustomEvent('modeSelected', { 
+                document.dispatchEvent(new CustomEvent('modeSelected', { 
                     detail: selectedMode 
-                });
-                document.dispatchEvent(event);
+                }));
             });
         }
     
-        this.modeSelectionContainer.style.display = 'block';
+        container.style.display = 'block';
     }
 
-    // Add a method to clear the extraction progress when done
-    clearExtractionProgress() {
-        const extractionProgressContainer = document.getElementById('extractionProgressContainer');
-        if (extractionProgressContainer) {
-            extractionProgressContainer.style.display = 'none';
-        }
-    }
-
-    bindEvents() {
-        if (this.uploadButton) {
-            this.uploadButton.addEventListener('click', () => {
-                this.fileInput.click();
-            });
-        }
-    }
-
-    // Add new method to show extraction progress
+    /**
+     * Show or hide extraction progress
+     */
     showExtractionProgress(show = true, status = '', percentage = 0) {
-        const progressContainer = document.getElementById('extractionProgressContainer');
-        if (!progressContainer) return;
+        const container = this.elements.extractionProgressContainer;
+        if (!container) return;
         
         if (show) {
-            // Update status and progress 
             const statusMessage = document.getElementById('statusMessage');
             const progressFill = document.getElementById('extractionProgressFill');
             const progressDetails = document.getElementById('progressDetails');
@@ -271,19 +416,23 @@ export class UIController {
                 progressDetails.textContent = `Progress: ${percentage}% complete`;
             }
             
-            progressContainer.style.display = 'block';
+            container.style.display = 'block';
         } else {
-            progressContainer.style.display = 'none';
+            container.style.display = 'none';
         }
     }
 
-
+    /**
+     * Update file list display
+     */
     updateFileList(files) {
-        if (!this.fileList) return;
+        const fileList = this.elements.fileList;
+        if (!fileList) return;
         
-        this.fileList.innerHTML = '';
+        fileList.innerHTML = '';
         const filesArray = Array.from(files);
 
+        // Create file items
         filesArray.forEach(file => {
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
@@ -298,15 +447,16 @@ export class UIController {
 
             fileItem.appendChild(fileName);
             fileItem.appendChild(fileSize);
-            this.fileList.appendChild(fileItem);
+            fileList.appendChild(fileItem);
         });
 
+        // Show summary
         if (filesArray.length > 0) {
             const totalSize = filesArray.reduce((acc, file) => acc + file.size, 0);
             const summary = document.createElement('div');
             summary.className = 'file-summary';
             summary.textContent = `Total: ${filesArray.length} files (${this.formatFileSize(totalSize)})`;
-            this.fileList.appendChild(summary);
+            fileList.appendChild(summary);
         }
     }
 
@@ -318,69 +468,146 @@ export class UIController {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
-    initializeGroupProgress(totalGroups) {
-        this.currentGroupIndex = 0;
-        this.totalGroups = totalGroups;
-        this.accumulatedData = { pages: [] };
-        this.groupProgressContainer.style.display = 'block';
-        this.updateGroupProgress(0, totalGroups);
+    /**
+     * Make sure group progress container is added to the DOM
+     */
+    ensureGroupProgressInDOM() {
+        // Check if container is already in the DOM
+        if (this.elements.groupProgress.container.parentNode) {
+            return true;
+        }
+        
+        // Try to add it to the document
+        const fieldContainer = this.elements.fieldSelectionContainer;
+        if (fieldContainer && fieldContainer.parentNode) {
+            fieldContainer.parentNode.insertBefore(
+                this.elements.groupProgress.container,
+                fieldContainer.nextSibling
+            );
+            return true;
+        }
+        
+        // As a fallback, try to add it to the data table container
+        const dataTableContainer = document.getElementById('dataTableContainer');
+        if (dataTableContainer) {
+            dataTableContainer.parentNode.insertBefore(
+                this.elements.groupProgress.container,
+                dataTableContainer
+            );
+            return true;
+        }
+        
+        // Last resort, add it to the body
+        if (document.body) {
+            document.body.appendChild(this.elements.groupProgress.container);
+            return true;
+        }
+        
+        return false;
     }
 
+    /**
+     * Initialize group progress display
+     */
+    initializeGroupProgress(totalGroups) {
+        this.state.currentGroupIndex = 0;
+        this.state.totalGroups = totalGroups;
+        this.state.accumulatedData = { pages: [] };
+        
+        // Make sure container is in the DOM before showing it
+        if (!this.ensureGroupProgressInDOM()) {
+            console.warn('Could not add group progress to DOM');
+            return false;
+        }
+        
+        // Show the container
+        if (this.elements.groupProgress.container) {
+            this.elements.groupProgress.container.style.display = 'block';
+        }
+        
+        this.updateGroupProgress(0, totalGroups);
+        return true;
+    }
+
+    /**
+     * Update group progress display
+     */
     updateGroupProgress(currentGroup, totalGroups, pageInfo = null) {
-        const progressFill = this.groupProgressContainer.querySelector('.group-progress-fill');
-        const currentGroupText = this.groupProgressContainer.querySelector('.current-group');
-        const pagesInfo = this.groupProgressContainer.querySelector('.pages-info');
+        // Safety check for element existence
+        const { fill, currentGroup: currentGroupText, pagesInfo } = this.elements.groupProgress || {};
+        if (!fill || !currentGroupText) {
+            console.warn('Group progress elements not available');
+            return;
+        }
         
-        // Calculate percentage based on completed groups (0 to 100)
+        // Calculate percentage
         const percentage = ((currentGroup + 1) / totalGroups) * 100;
-        progressFill.style.width = `${percentage}%`;
+        fill.style.width = `${percentage}%`;
         
-        currentGroupText.textContent = `Processing group ${currentGroup + 1} of ${totalGroups}`;
+        if (currentGroupText) {
+            currentGroupText.textContent = `Processing group ${currentGroup + 1} of ${totalGroups}`;
+        }
         
-        if (pageInfo) {
+        if (pagesInfo && pageInfo) {
             pagesInfo.textContent = `Pages: ${pageInfo.startPage}-${pageInfo.endPage} of ${pageInfo.totalPages}`;
         }
     }
 
+    /**
+     * Set group status message
+     */
     setGroupStatus(message, isError = false) {
-        const statusDiv = this.groupProgressContainer.querySelector('.group-status');
-        const progressFill = this.groupProgressContainer.querySelector('.group-progress-fill');
+        // Safety check
+        const { status, fill } = this.elements.groupProgress || {};
+        if (!status) {
+            console.warn('Group status element not available');
+            return;
+        }
         
-        statusDiv.textContent = message;
-        statusDiv.className = `group-status ${isError ? 'error' : 'success'}`;
+        status.textContent = message;
+        status.className = `group-status ${isError ? 'error' : 'success'}`;
         
-        // Add or remove the processing animation class
-        if (isError) {
-            progressFill.classList.remove('processing');
-        } else if (message.includes('Completed group')) {
-            progressFill.classList.add('processing');
-        } else if (message.includes('All groups processed')) {
-            progressFill.classList.remove('processing');
-            // Ensure the progress bar is completely filled
-            progressFill.style.width = '100%';
+        if (fill) {
+            if (isError) {
+                fill.classList.remove('processing');
+            } else if (message.includes('Completed group')) {
+                fill.classList.add('processing');
+            } else if (message.includes('All groups processed')) {
+                fill.classList.remove('processing');
+                fill.style.width = '100%';
+            }
         }
     }
 
+    /**
+     * Update progress display
+     */
     updateProgress(progressData) {
-        if (this.progressContainer && this.progressBar && this.progressText) {
-            this.progressContainer.style.display = 'block';
+        const { progressContainer, progressBar, progressText } = this.elements;
+        
+        if (progressContainer && progressBar && progressText) {
+            progressContainer.style.display = 'block';
             
             const percentage = (progressData.current / progressData.total) * 100;
-            this.progressBar.style.width = `${percentage}%`;
-            this.progressText.textContent = progressData.message;
+            progressBar.style.width = `${percentage}%`;
+            progressText.textContent = progressData.message;
 
             if (progressData.current === progressData.total) {
                 setTimeout(() => {
-                    this.progressContainer.style.display = 'none';
+                    progressContainer.style.display = 'none';
                 }, 1000);
             }
         }
     }
 
+    /**
+     * Show field selection UI
+     */
     showFieldSelection(fields) {
-        if (!this.fieldSelectionContainer) return;
+        const container = this.elements.fieldSelectionContainer;
+        if (!container) return;
 
-        this.fieldSelectionContainer.innerHTML = `
+        container.innerHTML = `
             <div class="field-selection">
                 <h3>Select Fields to Analyze</h3>
                 <div class="fields-grid">
@@ -389,10 +616,10 @@ export class UIController {
                             <label>
                                 <input type="checkbox" 
                                        value="${field.fieldName}" 
-                                       data-description="${field.description}"
+                                       data-description="${field.description || ''}"
                                 />
                                 <span class="field-name">${field.fieldName}</span>
-                                <span class="field-description">${field.description}</span>
+                                <span class="field-description">${field.description || ''}</span>
                             </label>
                         </div>
                     `).join('')}
@@ -406,72 +633,79 @@ export class UIController {
         const analyzeBtn = document.getElementById('analyzeSelected');
         if (analyzeBtn) {
             analyzeBtn.addEventListener('click', () => {
-                const selectedCheckboxes = this.fieldSelectionContainer
-                    .querySelectorAll('input[type="checkbox"]:checked');
+                const selectedCheckboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+                this.state.selectedFields = Array.from(selectedCheckboxes).map(cb => cb.value);
                 
-                this.selectedFields = Array.from(selectedCheckboxes)
-                    .map(cb => cb.value);
-                
-                const event = new CustomEvent('fieldsSelected', { 
-                    detail: this.selectedFields 
-                });
-                document.dispatchEvent(event);
+                document.dispatchEvent(new CustomEvent('fieldsSelected', { 
+                    detail: this.state.selectedFields 
+                }));
             });
         }
 
-        this.fieldSelectionContainer.style.display = 'block';
+        container.style.display = 'block';
     }
 
+    /**
+     * Update table with group data
+     */
     updateTableWithGroupData(groupData, groupInfo) {
         try {
-            // Ensure dataTable is initialized
+            // Initialize dataTable if needed
             if (!this.dataTable) {
-                console.log('Initializing DataTable');
-                this.dataTable = new DataTable('dataTableContainer');
+                try {
+                    this.dataTable = new DataTable('dataTableContainer');
+                } catch (error) {
+                    console.warn('Failed to initialize DataTable:', error.message);
+                    return false;
+                }
             }
 
             // Initialize accumulatedData if needed
-            if (!this.accumulatedData.pages) {
-                this.accumulatedData = { pages: [] };
+            if (!this.state.accumulatedData.pages) {
+                this.state.accumulatedData = { pages: [] };
             }
-
-            console.log('Adding new pages to accumulated data:', groupData.pages);
             
             // Add new pages to accumulated data
-            this.accumulatedData.pages.push(...groupData.pages);
+            this.state.accumulatedData.pages.push(...groupData.pages);
             
             // Sort pages by page number
-            this.accumulatedData.pages.sort((a, b) => a.pageNumber - b.pageNumber);
-            
-            console.log('Rendering accumulated data:', this.accumulatedData);
+            this.state.accumulatedData.pages.sort((a, b) => a.pageNumber - b.pageNumber);
             
             // Update the table with all accumulated data
-            this.dataTable.render(this.accumulatedData);
+            this.dataTable.render(this.state.accumulatedData);
             
             // Update group progress
             this.updateGroupProgress(
                 groupInfo.groupIndex,
-                this.totalGroups,
+                this.state.totalGroups,
                 {
                     startPage: groupInfo.startPage,
                     endPage: groupInfo.endPage,
                     totalPages: groupInfo.totalPages
                 }
             );
+            
+            return true;
         } catch (error) {
             console.error('Error updating table with group data:', error);
-            throw new Error(`Failed to update table: ${error.message}`);
+            this.showError(`Failed to update table: ${error.message}`);
+            return false;
         }
     }
 
+    /**
+     * Set processing state
+     */
     setProcessingState(processing) {
-        this.isProcessing = processing;
-        if (this.dropZone) {
-            this.dropZone.classList.toggle('processing', processing);
+        this.state.isProcessing = processing;
+        
+        if (this.elements.dropZone) {
+            this.elements.dropZone.classList.toggle('processing', processing);
         }
-        if (this.uploadButton) {
-            this.uploadButton.disabled = processing;
-            this.uploadButton.textContent = processing ? 'Processing PDFs...' : 'Select PDF files';
+        
+        if (this.elements.uploadButton) {
+            this.elements.uploadButton.disabled = processing;
+            this.elements.uploadButton.textContent = processing ? 'Processing PDFs...' : 'Select PDF files';
         }
 
         const analyzeBtn = document.getElementById('analyzeSelected');
@@ -479,57 +713,87 @@ export class UIController {
             analyzeBtn.disabled = processing;
         }
     }
-
+    
+    /**
+     * Show error message
+     */
     showError(message) {
         console.error('UI Error:', message);
-        if (!this.dropZone) return;
+        const dropZone = this.elements.dropZone;
+        if (!dropZone) return;
 
         const errorDiv = document.createElement('div');
         errorDiv.className = 'error-message';
         errorDiv.textContent = message;
-        this.dropZone.appendChild(errorDiv);
+        dropZone.appendChild(errorDiv);
         
-        this.setGroupStatus(message, true);
+        // Only try to set group status if the elements exist
+        if (this.elements.groupProgress?.status) {
+            this.setGroupStatus(message, true);
+        }
+        
         setTimeout(() => this.clearError(), 5000);
     }
 
+    /**
+     * Clear error message
+     */
     clearError() {
-        if (!this.dropZone) return;
-        const errorMessage = this.dropZone.querySelector('.error-message');
+        const dropZone = this.elements.dropZone;
+        if (!dropZone) return;
+        
+        const errorMessage = dropZone.querySelector('.error-message');
         if (errorMessage) {
             errorMessage.remove();
         }
     }
 
-    // Update resetState to hide extraction progress
+    /**
+     * Reset UI state
+     */
     resetState() {
-        if (this.fileInput) this.fileInput.value = '';
-        if (this.fileList) this.fileList.innerHTML = '';
-        if (this.progressContainer) this.progressContainer.style.display = 'none';
-        if (this.progressBar) this.progressBar.style.width = '0';
-        if (this.fieldSelectionContainer) {
-            this.fieldSelectionContainer.style.display = 'none';
-            this.fieldSelectionContainer.innerHTML = '';
+        const { fileInput, fileList, progressContainer, progressBar, 
+                fieldSelectionContainer, groupProgress, modeSelectionContainer, 
+                dropZone, simpleProgress } = this.elements;
+                
+        if (fileInput) fileInput.value = '';
+        if (fileList) fileList.innerHTML = '';
+        if (progressContainer) progressContainer.style.display = 'none';
+        if (progressBar) progressBar.style.width = '0';
+        
+        if (fieldSelectionContainer) {
+            fieldSelectionContainer.style.display = 'none';
+            fieldSelectionContainer.innerHTML = '';
         }
-        if (this.groupProgressContainer) {
-            this.groupProgressContainer.style.display = 'none';
+        
+        if (groupProgress?.container) {
+            groupProgress.container.style.display = 'none';
+        }
+        
+        if (simpleProgress?.container) {
+            simpleProgress.container.style.display = 'none';
         }
         
         // Hide extraction progress
         this.showExtractionProgress(false);
         
         // Show mode selection and hide drop zone
-        if (this.modeSelectionContainer) {
-            this.modeSelectionContainer.style.display = 'block';
-        }
-        if (this.dropZone) {
-            this.dropZone.style.display = 'none';
+        if (modeSelectionContainer) {
+            modeSelectionContainer.style.display = 'block';
         }
         
-        this.selectedFields = [];
-        this.currentGroupIndex = 0;
-        this.totalGroups = 0;
-        this.accumulatedData = { pages: [] };
+        if (dropZone) {
+            dropZone.style.display = 'none';
+        }
+        
+        // Reset state
+        this.state.selectedFields = [];
+        this.state.currentGroupIndex = 0;
+        this.state.totalGroups = 0;
+        this.state.accumulatedData = { pages: [] };
+        this.state.currentPage = 0;
+        this.state.totalPages = 0;
+        
         this.clearError();
     }
 }

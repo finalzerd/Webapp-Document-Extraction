@@ -1,15 +1,20 @@
+/**
+ * TableDataComponent - Component for rendering bank statement table data
+ */
 export class TableDataComponent {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
-        this.data = { pages: [] };
-        
         if (!this.container) {
             throw new Error(`Container with id ${containerId} not found`);
         }
         
+        this.data = { pages: [] };
         this.addStyles();
     }
 
+    /**
+     * Add component styles
+     */
     addStyles() {
         const style = document.createElement('style');
         style.textContent = `
@@ -76,21 +81,34 @@ export class TableDataComponent {
             .export-button:hover {
                 background-color: #45a049;
             }
+            .loading-message {
+                text-align: center;
+                padding: 20px;
+                color: #666;
+                font-style: italic;
+            }
         `;
         document.head.appendChild(style);
     }
 
+    /**
+     * Create view for a single table
+     * @param {Object} tableData - Table data with headers and rows
+     * @param {number} pageNumber - Page number
+     * @returns {HTMLElement} Table container element
+     */
     createTableView(tableData, pageNumber) {
         const tableContainer = document.createElement('div');
         tableContainer.className = 'extracted-table-container';
         
+        // Add page header
         const pageHeader = document.createElement('h3');
         pageHeader.className = 'page-header';
         pageHeader.textContent = `Page ${pageNumber}`;
         tableContainer.appendChild(pageHeader);
         
-        // No data case
-        if (!tableData || !tableData.headers || !tableData.rows || tableData.rows.length === 0) {
+        // Handle empty data case
+        if (!tableData?.headers?.length || !tableData?.rows?.length) {
             const noDataMsg = document.createElement('p');
             noDataMsg.className = 'no-data-message';
             noDataMsg.textContent = 'No table data found on this page';
@@ -102,7 +120,7 @@ export class TableDataComponent {
         const table = document.createElement('table');
         table.className = 'extracted-table';
         
-        // Create header
+        // Create header row
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
         
@@ -115,7 +133,7 @@ export class TableDataComponent {
         thead.appendChild(headerRow);
         table.appendChild(thead);
         
-        // Create body
+        // Create table body with rows
         const tbody = document.createElement('tbody');
         
         tableData.rows.forEach(row => {
@@ -136,65 +154,29 @@ export class TableDataComponent {
         return tableContainer;
     }
 
+    /**
+     * Render data to the component
+     * @param {Object} data - Data object with pages array
+     */
     render(data) {
         try {
             console.log('Rendering table data:', data);
             
-            // Handle empty data case gracefully - show a loading message instead of error
-            if (!data || !data.pages || data.pages.length === 0) {
-                // Don't throw an error, just show a loading state
-                console.log('No data yet, showing loading state');
-                
-                // Clear container
-                this.container.innerHTML = '';
-                
-                // Add export button (disabled for now)
-                const exportControls = document.createElement('div');
-                exportControls.className = 'export-controls';
-                
-                const exportButton = document.createElement('button');
-                exportButton.className = 'export-button';
-                exportButton.textContent = 'Export to Excel';
-                exportButton.disabled = true; // Disable until we have data
-                exportButton.style.opacity = '0.5'; // Show as disabled
-                exportControls.appendChild(exportButton);
-                
-                this.container.appendChild(exportControls);
-                
-                // Add loading message
-                const loadingMessage = document.createElement('div');
-                loadingMessage.className = 'loading-message';
-                loadingMessage.textContent = 'Extracting transaction data, tables will appear here as they are processed...';
-                loadingMessage.style.textAlign = 'center';
-                loadingMessage.style.padding = '20px';
-                loadingMessage.style.color = '#666';
-                
-                this.container.appendChild(loadingMessage);
-                
-                // Store empty data
-                this.data = { pages: [] };
-                
-                return; // Exit early
-            }
-    
             // Store the data
-            this.data = data;
-    
+            this.data = data || { pages: [] };
+            
             // Clear container
             this.container.innerHTML = '';
             
             // Add export button
-            const exportControls = document.createElement('div');
-            exportControls.className = 'export-controls';
+            this.addExportButton();
             
-            const exportButton = document.createElement('button');
-            exportButton.className = 'export-button';
-            exportButton.textContent = 'Export to Excel';
-            exportButton.onclick = () => this.exportToExcel();
-            
-            exportControls.appendChild(exportButton);
-            this.container.appendChild(exportControls);
-            
+            // Handle empty data
+            if (!data?.pages?.length) {
+                this.showLoadingState();
+                return;
+            }
+    
             // Create container for all tables
             const tablesContainer = document.createElement('div');
             tablesContainer.className = 'tables-container';
@@ -208,24 +190,75 @@ export class TableDataComponent {
             this.container.appendChild(tablesContainer);
         } catch (error) {
             console.error('Error in TableDataComponent render:', error);
-            
-            // Display error message in the container instead of throwing
-            this.container.innerHTML = `
-                <div style="padding: 20px; color: #d32f2f; background: #ffebee; border-radius: 4px;">
-                    <h3>Error Displaying Tables</h3>
-                    <p>${error.message}</p>
-                </div>
-            `;
+            this.showError(error);
         }
     }
+    
+    /**
+     * Add export button to the container
+     */
+    addExportButton() {
+        const exportControls = document.createElement('div');
+        exportControls.className = 'export-controls';
+        
+        const exportButton = document.createElement('button');
+        exportButton.className = 'export-button';
+        exportButton.textContent = 'Export to Excel';
+        exportButton.onclick = () => this.exportToExcel();
+        
+        // Disable if no data
+        if (!this.data?.pages?.length) {
+            exportButton.disabled = true;
+            exportButton.style.opacity = '0.5';
+        }
+        
+        exportControls.appendChild(exportButton);
+        this.container.appendChild(exportControls);
+    }
+    
+    /**
+     * Show loading state
+     */
+    showLoadingState() {
+        const loadingMessage = document.createElement('div');
+        loadingMessage.className = 'loading-message';
+        loadingMessage.textContent = 'Extracting transaction data, tables will appear here as they are processed...';
+        
+        this.container.appendChild(loadingMessage);
+    }
+    
+    /**
+     * Show error message
+     */
+    showError(error) {
+        this.container.innerHTML += `
+            <div style="padding: 20px; color: #d32f2f; background: #ffebee; border-radius: 4px;">
+                <h3>Error Displaying Tables</h3>
+                <p>${error.message}</p>
+            </div>
+        `;
+    }
 
+    /**
+     * Export table data to Excel
+     */
     exportToExcel() {
+        if (!this.data?.pages?.length) {
+            alert('No data available for export');
+            return;
+        }
+
         try {
             const XLSX = window.XLSX;
+            if (!XLSX) {
+                throw new Error('XLSX library not loaded');
+            }
+            
             const wb = XLSX.utils.book_new();
             
+            // Process each page with data
             this.data.pages.forEach(page => {
-                if (page.tableData && page.tableData.headers && page.tableData.rows && page.tableData.rows.length > 0) {
+                if (page.tableData?.headers?.length && page.tableData?.rows?.length) {
                     // Create worksheet with headers and data rows
                     const wsData = [page.tableData.headers, ...page.tableData.rows];
                     const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -234,6 +267,13 @@ export class TableDataComponent {
                     XLSX.utils.book_append_sheet(wb, ws, `Page ${page.pageNumber}`);
                 }
             });
+            
+            // Add consolidated sheet if multiple pages
+            if (wb.SheetNames.length > 1) {
+                const consolidatedData = this.createConsolidatedTable();
+                const ws = XLSX.utils.aoa_to_sheet([consolidatedData.headers, ...consolidatedData.rows]);
+                XLSX.utils.book_append_sheet(wb, ws, 'All Transactions');
+            }
             
             // If no data was added to the workbook, return
             if (wb.SheetNames.length === 0) {
@@ -250,12 +290,15 @@ export class TableDataComponent {
         }
     }
     
-    // Merge all pages into a single consolidated table (useful for bank statements)
+    /**
+     * Create consolidated table with data from all pages
+     * @returns {Object} Consolidated table data
+     */
     createConsolidatedTable() {
         // Find all unique headers across all pages
         const allHeaders = new Set();
         this.data.pages.forEach(page => {
-            if (page.tableData && page.tableData.headers) {
+            if (page.tableData?.headers) {
                 page.tableData.headers.forEach(header => allHeaders.add(header));
             }
         });
@@ -278,7 +321,7 @@ export class TableDataComponent {
         // Gather all rows from all pages
         const allRows = [];
         this.data.pages.forEach(page => {
-            if (page.tableData && page.tableData.rows) {
+            if (page.tableData?.rows) {
                 // For each row, map to the consolidated headers
                 page.tableData.rows.forEach(row => {
                     const newRow = new Array(headers.length).fill('');
@@ -307,6 +350,11 @@ export class TableDataComponent {
         };
     }
     
+    /**
+     * Sort rows by date if a date column exists
+     * @param {Array} rows - Array of row data
+     * @param {Array} headers - Array of header names
+     */
     sortRowsByDate(rows, headers) {
         // Try to find a date column
         const dateColumnIndex = headers.findIndex(h => 
@@ -327,6 +375,11 @@ export class TableDataComponent {
         }
     }
     
+    /**
+     * Parse date string to Date object
+     * @param {string} dateStr - Date string to parse
+     * @returns {Date|null} Date object or null if invalid
+     */
     parseDate(dateStr) {
         if (!dateStr) return null;
         

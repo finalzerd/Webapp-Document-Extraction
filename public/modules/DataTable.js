@@ -1,15 +1,14 @@
 export class DataTable {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
-        this.data = { pages: [] };
-        this.table = null;
-        this.tbody = null;
-        
         if (!this.container) {
             throw new Error(`Container with id ${containerId} not found`);
         }
         
-        // Add styles immediately on construction
+        this.data = { pages: [] };
+        this.table = null;
+        this.tbody = null;
+        
         this.addStyles();
     }
 
@@ -23,10 +22,32 @@ export class DataTable {
                 border-radius: 4px;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             }
+            .table-controls {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+                padding: 10px;
+            }
+            .export-button {
+                padding: 8px 16px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: background-color 0.3s;
+            }
+            .export-button:hover {
+                background-color: #45a049;
+            }
+            .table-status {
+                font-size: 14px;
+                color: #666;
+            }
             .data-table {
                 width: 100%;
                 border-collapse: collapse;
-                margin-top: 10px;
             }
             .data-table th, .data-table td {
                 border: 1px solid #ddd;
@@ -53,46 +74,6 @@ export class DataTable {
             .date-value {
                 color: #2196f3;
             }
-            .processing-row {
-                animation: processing-bg 2s infinite;
-            }
-            @keyframes processing-bg {
-                0% { background-color: #fff; }
-                50% { background-color: #f0f7ff; }
-                100% { background-color: #fff; }
-            }
-            .export-button {
-                margin: 10px 0;
-                padding: 8px 16px;
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 14px;
-                transition: background-color 0.3s;
-            }
-            .export-button:hover {
-                background-color: #45a049;
-            }
-            .table-controls {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 10px;
-                padding: 10px;
-            }
-            .table-status {
-                font-size: 14px;
-                color: #666;
-            }
-            .pending-row {
-                opacity: 0.5;
-                background-color: #f5f5f5;
-            }
-            .error-row {
-                background-color: #fff3f3;
-            }
             .table-placeholder {
                 text-align: center;
                 padding: 20px;
@@ -102,14 +83,18 @@ export class DataTable {
         `;
         document.head.appendChild(style);
     }
-
+    
+    /**
+     * Creates the table structure with headers
+     * @param {Array} headers - Array of column headers 
+     */
     initializeTable(headers) {
         this.container.innerHTML = '';
         
         const tableWrapper = document.createElement('div');
         tableWrapper.className = 'table-wrapper';
 
-        // Add controls section
+        // Create controls section
         const controls = document.createElement('div');
         controls.className = 'table-controls';
         
@@ -126,11 +111,10 @@ export class DataTable {
         controls.appendChild(status);
         tableWrapper.appendChild(controls);
 
-        // Create table
+        // Create table with headers
         this.table = document.createElement('table');
         this.table.className = 'data-table';
-
-        // Create header
+        
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
         
@@ -156,58 +140,28 @@ export class DataTable {
         tableWrapper.appendChild(this.table);
         this.container.appendChild(tableWrapper);
     }
-
-    renderRows(pages) {
-        if (!this.tbody) return;
-
-        pages.forEach(page => {
-            const row = document.createElement('tr');
-            
-            // Add page number
-            const pageCell = document.createElement('td');
-            pageCell.textContent = page.pageNumber;
-            row.appendChild(pageCell);
-            
-            // Add field values
-            Object.entries(page.fields).forEach(([field, fieldData]) => {
-                const td = document.createElement('td');
-                if (fieldData.value === null) {
-                    td.textContent = 'N/A';
-                    td.className = 'no-value';
-                } else {
-                    td.textContent = fieldData.value;
-                    if (fieldData.type === 'date') {
-                        td.className = 'date-value';
-                    }
-                }
-                row.appendChild(td);
-            });
-
-            this.tbody.appendChild(row);
-        });
-    }
-
+    
+    /**
+     * Renders data to the table
+     * @param {Object} data - Data object with pages array
+     */
     render(data) {
         try {
             console.log('Rendering data:', data);
             
-            if (!data || !data.pages || data.pages.length === 0) {
-                console.error('Invalid data format or empty data provided to DataTable render');
+            if (!data?.pages?.length) {
+                console.error('Invalid data format or empty data provided');
                 return;
             }
 
             // Store the data
             this.data = data;
 
-            // Get the field names from the first page
+            // Get field names from the first page
             const firstPage = data.pages[0];
             const fieldNames = Object.keys(firstPage.fields);
-            
-            // Log the field structure for debugging
-            console.log('Field names for headers:', fieldNames);
-            console.log('Sample data structure:', firstPage.fields);
 
-            // Initialize or reinitialize the table with correct headers
+            // Initialize table with headers
             this.initializeTable(fieldNames);
 
             // Clear existing rows
@@ -215,47 +169,16 @@ export class DataTable {
                 this.tbody.innerHTML = '';
             }
 
-            // Add new rows
+            // Handle empty data case
             if (data.pages.length === 0) {
-                const placeholderRow = document.createElement('tr');
-                const cell = document.createElement('td');
-                cell.colSpan = fieldNames.length + 1; // +1 for page number column
-                cell.className = 'table-placeholder';
-                cell.textContent = 'No data available';
-                placeholderRow.appendChild(cell);
-                this.tbody.appendChild(placeholderRow);
-            } else {
-                // Ensure rows are rendered with fields in the same order as headers
-                data.pages.forEach(page => {
-                    const row = document.createElement('tr');
-                    
-                    // Add page number
-                    const pageCell = document.createElement('td');
-                    pageCell.textContent = page.pageNumber;
-                    row.appendChild(pageCell);
-                    
-                    // Add fields in the same order as headers
-                    fieldNames.forEach(fieldName => {
-                        const td = document.createElement('td');
-                        const fieldData = page.fields[fieldName];
-                        
-                        if (!fieldData || fieldData.value === null) {
-                            td.textContent = 'N/A';
-                            td.className = 'no-value';
-                        } else {
-                            td.textContent = fieldData.value;
-                            if (fieldData.type === 'date') {
-                                td.className = 'date-value';
-                            }
-                        }
-                        row.appendChild(td);
-                    });
-
-                    this.tbody.appendChild(row);
-                });
+                this.renderEmptyState(fieldNames.length + 1);
+                return;
             }
 
-            // Update status if available
+            // Render each page
+            data.pages.forEach(page => this.renderPageRow(page, fieldNames));
+
+            // Update status
             const status = this.container.querySelector('.table-status');
             if (status) {
                 status.textContent = `Showing ${data.pages.length} page(s)`;
@@ -265,22 +188,76 @@ export class DataTable {
             throw error;
         }
     }
+    
+    /**
+     * Renders an empty state placeholder
+     * @param {number} colSpan - Number of columns to span
+     */
+    renderEmptyState(colSpan) {
+        const placeholderRow = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = colSpan;
+        cell.className = 'table-placeholder';
+        cell.textContent = 'No data available';
+        placeholderRow.appendChild(cell);
+        this.tbody.appendChild(placeholderRow);
+    }
+    
+    /**
+     * Renders a single page row
+     * @param {Object} page - Page data object
+     * @param {Array} fieldNames - Array of field names in order
+     */
+    renderPageRow(page, fieldNames) {
+        const row = document.createElement('tr');
+        
+        // Add page number
+        const pageCell = document.createElement('td');
+        pageCell.textContent = page.pageNumber;
+        row.appendChild(pageCell);
+        
+        // Add fields in the same order as headers
+        fieldNames.forEach(fieldName => {
+            const td = document.createElement('td');
+            const fieldData = page.fields[fieldName];
+            
+            if (!fieldData || fieldData.value === null) {
+                td.textContent = 'N/A';
+                td.className = 'no-value';
+            } else {
+                td.textContent = fieldData.value;
+                if (fieldData.type === 'date') {
+                    td.className = 'date-value';
+                }
+            }
+            row.appendChild(td);
+        });
 
+        this.tbody.appendChild(row);
+    }
+    
+    /**
+     * Export table data to Excel
+     */
     async exportToExcel() {
-        if (!this.data || !this.data.pages || this.data.pages.length === 0) {
+        if (!this.data?.pages?.length) {
             console.error('No data available for export');
             return;
         }
 
         try {
             const XLSX = window.XLSX;
+            if (!XLSX) {
+                throw new Error('XLSX library not loaded');
+            }
+            
             const wb = XLSX.utils.book_new();
             
             // Get field names in the same order as table headers
             const fieldNames = Object.keys(this.data.pages[0].fields);
             const headers = ['Page', ...fieldNames];
             
-            // Create rows ensuring field order matches headers
+            // Create rows with consistent field order
             const rows = this.data.pages.map(page => {
                 const row = [page.pageNumber];
                 fieldNames.forEach(fieldName => {
