@@ -183,54 +183,32 @@ export class ApiService {
     }
 
     async extractTableData(base64Content) {
-        let stopPolling = null;
-        
-        try {
-            // Get page count first for better progress tracking
-            const pageCount = await this.getPDFPageCount(base64Content);
+        return await this.retryOperation(async () => {
+            console.log('Extracting table data...');
             
-            // Start progress polling
-            stopPolling = this.startProgressPolling(pageCount);
-            
-            return await this.retryOperation(async () => {
-                console.log('Extracting table data...');
-                
-                const response = await fetch(this.endpoints.extractTableData, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        base64Content: base64Content
-                    })
-                });
-    
-                if (!response.ok) {
-                    throw new Error(`API request failed: ${response.status}`);
-                }
-    
-                const data = await response.json();
-                
-                if (!data.success) {
-                    throw new Error(data.error || 'Unknown error occurred');
-                }
-    
-                return data.data;
-            }, 'table extraction');
-        } finally {
-            // Make sure to stop polling when done
-            if (stopPolling) {
-                stopPolling();
-            }
-            
-            // Final progress update
-            this.updateExtractionProgress({
-                status: 'Completed extracting all transaction data!',
-                currentPage: 0,
-                totalPages: pageCount,
-                completedPages: pageCount
+            // Normal fetch request with regular JSON response
+            const response = await fetch(this.endpoints.extractTableData, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    base64Content: base64Content
+                })
             });
-        }
+    
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+    
+            const data = await response.json();
+            
+            if (!data.success) {
+                throw new Error(data.error || 'Unknown error occurred');
+            }
+    
+            return data.data;
+        }, 'table extraction');
     }
 
     // Add this helper method to ApiService
@@ -326,6 +304,119 @@ export class ApiService {
                 // Stop processing if a group fails
                 break;
             }
+        }
+    }
+
+    // In ApiService.js, create a new method for streamed extraction
+    extractTableDataStreamed(base64Content, callbacks) {
+        try {
+            console.log('Starting streamed table extraction...');
+            
+            // Create a data structure to collect all pages
+            const collectedData = {
+                pages: []
+            };
+            
+            // Prepare the request
+            const body = JSON.stringify({
+                base64Content: base64Content
+            });
+            
+            // Create a fetch request but don't await it
+            fetch(this.endpoints.extractTableData, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: body
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status}`);
+                }
+                
+                // Create a reader for the response body
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                // Process the stream
+                function processStream() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            // Stream is complete
+                            callbacks.onComplete(collectedData);
+                            return;
+                        }
+                        
+                        // Decode the chunk
+                        const chunk = decoder.decode(value, { stream: true });
+                        
+                        // Split into events (each event is in format "event: ...\ndata: ...\n\n")
+                        const events = chunk.split('\n\n');
+                        
+                        events.forEach(event => {
+                            if (!event.trim()) return;
+                            
+                            // Parse event type and data
+                            const lines = event.split('\n');
+                            let eventType = '';
+                            let data = '';
+                            
+                            lines.forEach(line => {
+                                if (line.startsWith('event:')) {
+                                    eventType = line.substring(6).trim();
+                                } else if (line.startsWith('data:')) {
+                                    data = line.substring(5).trim();
+                                }
+                            });
+                            
+                            if (!eventType || !data) return;
+                            
+                            try {
+                                const parsedData = JSON.parse(data);
+                                
+                                // Handle different event types
+                                switch (eventType) {
+                                    case 'status':
+                                        callbacks.onStatus(parsedData);
+                                        break;
+                                    case 'headers':
+                                        callbacks.onHeaders(parsedData.headers);
+                                        break;
+                                    case 'page':
+                                        // Add to collected data
+                                        collectedData.pages.push(parsedData);
+                                        // Sort pages by page number
+                                        collectedData.pages.sort((a, b) => a.pageNumber - b.pageNumber);
+                                        // Notify
+                                        callbacks.onPage(parsedData, collectedData);
+                                        break;
+                                    case 'error':
+                                        callbacks.onError(new Error(parsedData.message));
+                                        break;
+                                    case 'complete':
+                                        callbacks.onComplete(collectedData);
+                                        break;
+                                }
+                            } catch (error) {
+                                console.error('Error processing event:', error);
+                            }
+                        });
+                        
+                        // Continue processing the stream
+                        return processStream();
+                    });
+                }
+                
+                // Start processing
+                return processStream();
+            })
+            .catch(error => {
+                callbacks.onError(error);
+            });
+            
+        } catch (error) {
+            callbacks.onError(error);
         }
     }
 

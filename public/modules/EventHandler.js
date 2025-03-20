@@ -120,20 +120,21 @@ export class EventHandler {
     
             // Store the processed PDF
             this.currentBase64 = processedPDF;
-
+    
             // Get total page count
             this.totalPages = await this.apiService.getPDFPageCount(this.currentBase64);
             console.log('Total pages:', this.totalPages);
-
-            // Show mode selection instead of immediately getting field suggestions
-            
+    
             // Process according to selected mode
             if (this.extractionMode === 'field') {
                 await this.startFieldExtraction(this.currentBase64);
             } else {
                 await this.startTableExtraction(this.currentBase64);
+                // Add return here to prevent continuing with field extraction
+                return;
             }
-
+    
+            // This part should only run for field extraction mode
             // Get field suggestions from first page
             console.log('Requesting field suggestions...');
             try {
@@ -153,9 +154,7 @@ export class EventHandler {
                 console.error('Field suggestion error:', error);
                 throw new Error(`Could not analyze document fields: ${error.message}`);
             }
-
-
-
+    
         } catch (error) {
             console.error('Error processing files:', error);
             const userMessage = error.message.includes('Could not analyze') 
@@ -212,57 +211,63 @@ export class EventHandler {
             // Get the total page count
             const totalPages = await this.apiService.getPDFPageCount(base64Content);
             
+            // Initialize table data component right away - don't wait until the end
+            if (!this.tableDataComponent) {
+                try {
+                    const TableDataComponent = (await import('/modules/TableDataComponent.js')).TableDataComponent;
+                    this.tableDataComponent = new TableDataComponent('dataTableContainer');
+                    console.log('TableDataComponent initialized successfully');
+                } catch (error) {
+                    console.error('Error initializing TableDataComponent:', error);
+                    throw new Error(`Failed to initialize table component: ${error.message}`);
+                }
+            }
+            
+            // Create empty data structure to start with
+            const initialData = {
+                pages: []
+            };
+            
+            // Render empty table structure to start
+            this.tableDataComponent.render(initialData);
+            
             // Simulate progress during extraction
             let currentProgress = 0;
-            let statusMessages = [
-                'Analyzing document structure...',
-                'Identifying table headers...',
-                'Extracting transaction data...',
-                'Processing transaction rows...',
-                'Finalizing bank statement data...'
-            ];
-            
-            // Start progress animation
             const progressInterval = setInterval(() => {
-                // Increment progress up to 90% (save the last 10% for completion)
+                // Increment progress gradually up to 90%
                 if (currentProgress < 90) {
                     currentProgress += 1;
                     
-                    // Update status message at certain points
-                    if (currentProgress === 20) {
-                        this.ui.showExtractionProgress(true, statusMessages[1], currentProgress);
-                    } else if (currentProgress === 40) {
-                        this.ui.showExtractionProgress(true, statusMessages[2], currentProgress);
-                    } else if (currentProgress === 60) {
-                        this.ui.showExtractionProgress(true, statusMessages[3], currentProgress);
-                    } else if (currentProgress === 80) {
-                        this.ui.showExtractionProgress(true, statusMessages[4], currentProgress);
-                    }
+                    // Update progress messages at certain points
+                    let message = 'Extracting bank statement data...';
+                    if (currentProgress === 20) message = 'Analyzing document structure...';
+                    if (currentProgress === 40) message = 'Identifying transaction data...';
+                    if (currentProgress === 60) message = 'Processing transactions...';
+                    if (currentProgress === 80) message = 'Finalizing transaction data...';
                     
-                    this.ui.showExtractionProgress(true, null, currentProgress);
+                    this.ui.showExtractionProgress(true, message, currentProgress);
                 }
-            }, 500); // Update every 500ms
+            }, 500);
             
             try {
-                // Extract table data (this might take a while)
+                // Extract table data
                 const tableData = await this.apiService.extractTableData(base64Content);
                 
-                // Stop the progress animation
+                // Stop progress animation
                 clearInterval(progressInterval);
                 
                 // Show 100% complete
                 this.ui.showExtractionProgress(true, 'Bank statement data extracted successfully!', 100);
                 
-                // Initialize table data component if needed
-                if (!this.tableDataComponent) {
-                    const TableDataComponent = (await import('/modules/TableDataComponent.js')).TableDataComponent;
-                    this.tableDataComponent = new TableDataComponent('dataTableContainer');
-                }
+                console.log('Extracted table data:', tableData);
                 
                 // Render the table data
-                this.tableDataComponent.render(tableData);
-                
-                console.log('Table extraction complete');
+                if (tableData && tableData.pages) {
+                    this.tableDataComponent.render(tableData);
+                    console.log('Table rendered successfully with', tableData.pages.length, 'pages');
+                } else {
+                    throw new Error('Invalid data structure received from server');
+                }
                 
                 // Hide progress after a short delay
                 setTimeout(() => {
@@ -277,7 +282,6 @@ export class EventHandler {
         } catch (error) {
             console.error('Error in table extraction:', error);
             this.ui.showError(`Failed to extract tables: ${error.message}`);
-            // Hide progress on error
             this.ui.showExtractionProgress(false);
         } finally {
             this.ui.setProcessingState(false);

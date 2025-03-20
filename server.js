@@ -349,6 +349,7 @@ Rules:
     }
 });
 
+
 // Extract table data endpoint
 app.post('/extract-table-data', async (req, res) => {
     try {
@@ -434,13 +435,12 @@ DO NOT include any additional text, explanation, or code blocks.` },
         const extractedData = {
             pages: []
         };
-
+        
         // Create a cache to store page groups and avoid redundant fetching
         const pageGroupCache = {};
         
         // Process pages one by one with retries
         for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-
             // Calculate page group
             const groupIndex = Math.floor((pageNum - 1) / 10);
 
@@ -460,7 +460,7 @@ DO NOT include any additional text, explanation, or code blocks.` },
                     console.log(`Processing page ${pageNum} of ${pageCount} (attempt ${attempt}/5)...`);
                     
                     // Get page data
-                    const pageGroup = await pdfHandler.getPageGroup(base64Content, Math.floor((pageNum - 1) / 10));
+                    const pageGroup = pageGroupCache[groupIndex];
                     
                     // Create page request
                     const pageRequest = {
@@ -539,7 +539,7 @@ Rules:
                             });
                         } else {
                             // Wait longer between retries
-                            await delay(attempt * 3000);
+                            await delay(15000);
                         }
                     }
                 } catch (error) {
@@ -556,17 +556,20 @@ Rules:
                         });
                     } else {
                         // Wait longer between retries
-                        await delay(attempt * 3000);
+                        await delay(15000);
                     }
                 }
             }
             
             // Add a longer wait between pages (10 seconds) to avoid rate limits
             if (pageNum < pageCount) {
-                console.log(`Waiting 10 seconds before processing next page...`);
-                await delay(10000);
+                console.log(`Waiting 15 seconds before processing next page...`);
+                await delay(15000);
             }
         }
+        
+        // Sort pages by page number to ensure correct order
+        extractedData.pages.sort((a, b) => a.pageNumber - b.pageNumber);
         
         console.log(`Successfully processed ${extractedData.pages.length} pages`);
         

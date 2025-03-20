@@ -140,14 +140,46 @@ export class TableDataComponent {
         try {
             console.log('Rendering table data:', data);
             
+            // Handle empty data case gracefully - show a loading message instead of error
             if (!data || !data.pages || data.pages.length === 0) {
-                console.error('Invalid data format or empty data provided to TableDataComponent render');
-                return;
+                // Don't throw an error, just show a loading state
+                console.log('No data yet, showing loading state');
+                
+                // Clear container
+                this.container.innerHTML = '';
+                
+                // Add export button (disabled for now)
+                const exportControls = document.createElement('div');
+                exportControls.className = 'export-controls';
+                
+                const exportButton = document.createElement('button');
+                exportButton.className = 'export-button';
+                exportButton.textContent = 'Export to Excel';
+                exportButton.disabled = true; // Disable until we have data
+                exportButton.style.opacity = '0.5'; // Show as disabled
+                exportControls.appendChild(exportButton);
+                
+                this.container.appendChild(exportControls);
+                
+                // Add loading message
+                const loadingMessage = document.createElement('div');
+                loadingMessage.className = 'loading-message';
+                loadingMessage.textContent = 'Extracting transaction data, tables will appear here as they are processed...';
+                loadingMessage.style.textAlign = 'center';
+                loadingMessage.style.padding = '20px';
+                loadingMessage.style.color = '#666';
+                
+                this.container.appendChild(loadingMessage);
+                
+                // Store empty data
+                this.data = { pages: [] };
+                
+                return; // Exit early
             }
-
+    
             // Store the data
             this.data = data;
-
+    
             // Clear container
             this.container.innerHTML = '';
             
@@ -176,7 +208,14 @@ export class TableDataComponent {
             this.container.appendChild(tablesContainer);
         } catch (error) {
             console.error('Error in TableDataComponent render:', error);
-            throw error;
+            
+            // Display error message in the container instead of throwing
+            this.container.innerHTML = `
+                <div style="padding: 20px; color: #d32f2f; background: #ffebee; border-radius: 4px;">
+                    <h3>Error Displaying Tables</h3>
+                    <p>${error.message}</p>
+                </div>
+            `;
         }
     }
 
