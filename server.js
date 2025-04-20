@@ -594,11 +594,48 @@ function delay(ms) {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`\n=== Server Started ===`);
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Access the application at http://localhost:${PORT}`);
-    console.log(`Vertex AI Status: Ready`);
+app.listen(PORT, '0.0.0.0', async () => {
+    // Get the network interfaces to display the IP addresses
+    // Using ES module import instead of require
+    import('os').then(({ networkInterfaces }) => {
+        const nets = networkInterfaces();
+        const results = {};
+
+        for (const name of Object.keys(nets)) {
+            for (const net of nets[name]) {
+                // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
+                if (net.family === 'IPv4' && !net.internal) {
+                    if (!results[name]) {
+                        results[name] = [];
+                    }
+                    results[name].push(net.address);
+                }
+            }
+        }
+
+        console.log(`\n=== Server Started ===`);
+        console.log(`Server running on port ${PORT}`);
+        
+        // Display all available addresses
+        console.log('\nAccess the application at:');
+        console.log(`Local: http://localhost:${PORT}`);
+        
+        // Log IP addresses for network access
+        Object.keys(results).forEach(iface => {
+            results[iface].forEach(addr => {
+                console.log(`Network (${iface}): http://${addr}:${PORT}`);
+            });
+        });
+        
+        console.log('\nShare any of the "Network" URLs with people on your WiFi');
+        console.log(`Vertex AI Status: Ready`);
+    }).catch(err => {
+        console.log(`\n=== Server Started ===`);
+        console.log(`Server running on port ${PORT}`);
+        console.log(`Access the application at http://localhost:${PORT}`);
+        console.log(`Vertex AI Status: Ready`);
+        console.error(`Note: Could not detect network interfaces - ${err.message}`);
+    });
 });
 
 // Global error handlers
